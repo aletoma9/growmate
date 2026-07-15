@@ -1,7 +1,5 @@
-// This is your Prisma schema file,
-// learn more about it in the docs: https://pris.ly/d/prisma-schema
-
-// Get a free hosted Postgres database in seconds: `npx create-db`
+// ContSocietà — schema dati core
+// SaaS multi-tenant di contabilità ordinaria per società di capitali
 
 generator client {
   provider = "prisma-client"
@@ -10,4 +8,618 @@ generator client {
 
 datasource db {
   provider = "postgresql"
+}
+
+// ---------------------------------------------------------------------------
+// Tenancy, utenti, ruoli
+// ---------------------------------------------------------------------------
+
+model Tenant {
+  id        String   @id @default(cuid())
+  name      String
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  memberships Membership[]
+  companies   Company[]
+  auditLogs   AuditLog[]
+
+  @@map("tenants")
+}
+
+model User {
+  id           String   @id @default(cuid())
+  email        String   @unique
+  passwordHash String
+  name         String
+  createdAt    DateTime @default(now())
+  updatedAt    DateTime @updatedAt
+
+  memberships    Membership[]
+  journalEntries JournalEntry[] @relation("JournalEntryCreatedBy")
+  auditLogs      AuditLog[]
+
+  @@map("users")
+}
+
+enum MembershipRole {
+  OWNER
+  ADMIN
+  ACCOUNTANT
+  VIEWER
+}
+
+model Membership {
+  id       String         @id @default(cuid())
+  userId   String
+  tenantId String
+  role     MembershipRole
+
+  user   User   @relation(fields: [userId], references: [id], onDelete: Cascade)
+  tenant Tenant @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+
+  createdAt DateTime @default(now())
+
+  @@unique([userId, tenantId])
+  @@map("memberships")
+}
+
+// ---------------------------------------------------------------------------
+// Azienda ed esercizi
+// ---------------------------------------------------------------------------
+
+enum LegalForm {
+  SRL
+  SRLS
+  SPA
+  SAPA
+  ALTRA
+}
+
+model Company {
+  id                  String              @id @default(cuid())
+  tenantId            String
+  name                String
+  legalForm           LegalForm           @default(SRL)
+  vatNumber           String? // Partita IVA
+  taxCode             String? // Codice Fiscale
+  address             String?
+  // Periodicità liquidazione IVA
+  ivaSettlementPeriod IvaSettlementPeriod @default(MONTHLY)
+  // Pro-rata di detraibilità (art. 19-bis DPR 633/72), percentuale 0-100
+  proRataPercent      Decimal?            @db.Decimal(5, 2)
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  tenant Tenant @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+
+  fiscalYears         FiscalYear[]
+  accounts            Account[]
+  causali             CausaleContabile[]
+  partners            Partner[]
+  ivaRegisters        IvaRegister[]
+  cespiteCategorie    CespiteCategoria[]
+  cespiti             Cespite[]
+  bankAccounts        BankAccount[]
+  reconciliationRules ReconciliationRule[]
+  auditLogs           AuditLog[]
+
+  @@unique([tenantId, vatNumber])
+  @@map("companies")
+}
+
+enum IvaSettlementPeriod {
+  MONTHLY
+  QUARTERLY
+}
+
+enum FiscalYearStatus {
+  OPEN // esercizio aperto, scritture libere
+  LOCKED // periodo liquidato: blocco scritture retroattive su registri IVA già chiusi
+  CLOSED // esercizio chiuso, saldi riportati
+}
+
+model FiscalYear {
+  id        String           @id @default(cuid())
+  companyId String
+  startDate DateTime
+  endDate   DateTime
+  status    FiscalYearStatus @default(OPEN)
+
+  // ultimo periodo IVA liquidato in via definitiva (mese o trimestre), per il blocco retroattivo
+  lastLockedIvaPeriod Int?
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  company Company @relation(fields: [companyId], references: [id], onDelete: Cascade)
+
+  journalEntries   JournalEntry[]
+  ivaMovements     IvaMovement[]
+  ivaLiquidazioni  IvaLiquidazione[]
+  cespiteMovimenti CespiteMovimento[]
+
+  @@unique([companyId, startDate])
+  @@map("fiscal_years")
+}
+
+// ---------------------------------------------------------------------------
+// Piano dei conti
+// ---------------------------------------------------------------------------
+
+enum AccountLevel {
+  MASTRO
+  CONTO
+  SOTTOCONTO
+}
+
+enum AccountNature {
+  ATTIVO // patrimoniale attivo
+  PASSIVO // patrimoniale passivo
+  COSTO // economico di costo
+  RICAVO // economico di ricavo
+  CONTO_ORDINE
+}
+
+// Voce di bilancio civilistico ex art. 2424 (SP) e 2425 (CE) c.c.
+// Codificata come stringa gerarchica (es. "SP.A.I", "CE.A.1", "SP.C.II.1")
+// per consentire la riclassifica automatica senza vincolare la struttura.
+model Account {
+  id               String        @id @default(cuid())
+  companyId        String
+  code             String
+  name             String
+  level            AccountLevel
+  nature           AccountNature
+  balanceSheetItem String? // voce di raccordo SP/CE
+  isReconcilable   Boolean       @default(true) // se movimentabile direttamente in prima nota
+  isPartnerLedger  Boolean       @default(false) // conto clienti/fornitori: richiede partner in ogni riga
+  isCashOrBank     Boolean       @default(false) // conto cassa/banca (rilevante per riconciliazione)
+  active           Boolean       @default(true)
+
+  parentId String?
+  parent   Account?  @relation("AccountHierarchy", fields: [parentId], references: [id])
+  children Account[] @relation("AccountHierarchy")
+
+  company Company @relation(fields: [companyId], references: [id], onDelete: Cascade)
+
+  journalLines        JournalLine[]
+  bankAccounts        BankAccount[]
+  reconciliationRules ReconciliationRule[]
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@unique([companyId, code])
+  @@map("accounts")
+}
+
+// ---------------------------------------------------------------------------
+// Causali contabili
+// ---------------------------------------------------------------------------
+
+enum CausaleType {
+  FATTURA_VENDITA
+  FATTURA_ACQUISTO
+  NOTA_CREDITO_VENDITA
+  NOTA_CREDITO_ACQUISTO
+  CORRISPETTIVO
+  INCASSO
+  PAGAMENTO
+  GIROCONTO
+  F24
+  STIPENDI
+  AMMORTAMENTO
+  RATEI_RISCONTI
+  RETTIFICA
+  APERTURA
+  CHIUSURA
+  ALTRA
+}
+
+enum IvaRegisterType {
+  VENDITE
+  ACQUISTI
+  CORRISPETTIVI
+}
+
+model CausaleContabile {
+  id                   String           @id @default(cuid())
+  companyId            String
+  code                 String
+  name                 String
+  type                 CausaleType
+  // se true, la causale richiede/genera un movimento IVA collegato
+  generatesIvaMovement Boolean          @default(false)
+  ivaRegisterType      IvaRegisterType?
+  // conto IVA proposto di default (es. IVA a debito / IVA a credito) per l'automazione riga IVA
+  defaultIvaAccountId  String?
+  active               Boolean          @default(true)
+
+  company        Company        @relation(fields: [companyId], references: [id], onDelete: Cascade)
+  journalEntries JournalEntry[]
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@unique([companyId, code])
+  @@map("causali_contabili")
+}
+
+// ---------------------------------------------------------------------------
+// Prima nota / libro giornale (partita doppia)
+// ---------------------------------------------------------------------------
+
+enum JournalEntryStatus {
+  DRAFT
+  POSTED // registrata definitivamente nel libro giornale (numerata)
+  STORNATA // annullata tramite scrittura di storno collegata
+}
+
+model JournalEntry {
+  id             String             @id @default(cuid())
+  companyId      String
+  fiscalYearId   String
+  causaleId      String
+  number         Int? // numero progressivo libro giornale, assegnato alla registrazione definitiva (POSTED)
+  date           DateTime
+  description    String
+  documentNumber String?
+  documentDate   DateTime?
+  partnerId      String?
+  status         JournalEntryStatus @default(DRAFT)
+
+  reversalOfId String?       @unique
+  reversalOf   JournalEntry? @relation("Reversal", fields: [reversalOfId], references: [id])
+  reversedBy   JournalEntry? @relation("Reversal")
+
+  postedAt    DateTime?
+  createdById String?
+  createdBy   User?     @relation("JournalEntryCreatedBy", fields: [createdById], references: [id])
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  fiscalYear FiscalYear       @relation(fields: [fiscalYearId], references: [id])
+  causale    CausaleContabile @relation(fields: [causaleId], references: [id])
+  partner    Partner?         @relation(fields: [partnerId], references: [id])
+
+  lines                  JournalLine[]
+  ivaMovements           IvaMovement[]
+  cespiteMovimenti       CespiteMovimento[]
+  bankTransactionMatches BankTransaction[]
+
+  @@unique([companyId, fiscalYearId, number])
+  @@map("journal_entries")
+}
+
+model JournalLine {
+  id             String  @id @default(cuid())
+  journalEntryId String
+  accountId      String
+  partnerId      String? // per partitario clienti/fornitori quando il conto lo richiede
+  description    String?
+  debit          Decimal @default(0) @db.Decimal(14, 2)
+  credit         Decimal @default(0) @db.Decimal(14, 2)
+  sortOrder      Int     @default(0)
+
+  journalEntry JournalEntry @relation(fields: [journalEntryId], references: [id], onDelete: Cascade)
+  account      Account      @relation(fields: [accountId], references: [id])
+  partner      Partner?     @relation(fields: [partnerId], references: [id])
+
+  @@map("journal_lines")
+}
+
+// ---------------------------------------------------------------------------
+// Anagrafiche clienti / fornitori
+// ---------------------------------------------------------------------------
+
+enum PartnerType {
+  CLIENTE
+  FORNITORE
+  ENTRAMBI
+}
+
+model Partner {
+  id               String      @id @default(cuid())
+  companyId        String
+  type             PartnerType
+  name             String
+  vatNumber        String?
+  taxCode          String?
+  address          String?
+  iban             String?
+  paymentTermsDays Int?
+  active           Boolean     @default(true)
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  company Company @relation(fields: [companyId], references: [id], onDelete: Cascade)
+
+  journalEntries JournalEntry[]
+  journalLines   JournalLine[]
+  ivaMovements   IvaMovement[]
+
+  @@unique([companyId, vatNumber])
+  @@map("partners")
+}
+
+// ---------------------------------------------------------------------------
+// Registri IVA
+// ---------------------------------------------------------------------------
+
+model IvaRegister {
+  id            String          @id @default(cuid())
+  companyId     String
+  type          IvaRegisterType
+  sectionalCode String // es. "1" default, "RC" reverse charge, "EXP" esportazioni
+  name          String
+
+  company   Company       @relation(fields: [companyId], references: [id], onDelete: Cascade)
+  movements IvaMovement[]
+
+  @@unique([companyId, type, sectionalCode])
+  @@map("iva_registers")
+}
+
+enum IvaRegimeType {
+  ORDINARIA
+  REVERSE_CHARGE_INTERNO
+  REVERSE_CHARGE_ESTERO
+  SPLIT_PAYMENT
+  NON_IMPONIBILE // art. 8, 8-bis, 9, 41 DL 331/93
+  ESENTE // art. 10
+  FUORI_CAMPO
+  IVA_DIFFERITA // IVA per cassa
+}
+
+model IvaMovement {
+  id             String  @id @default(cuid())
+  companyId      String
+  fiscalYearId   String
+  ivaRegisterId  String
+  journalEntryId String?
+  partnerId      String?
+
+  protocolNumber Int // progressivo annuale per registro
+  documentDate   DateTime
+  documentNumber String
+  regimeType     IvaRegimeType @default(ORDINARIA)
+
+  taxableAmount Decimal @db.Decimal(14, 2)
+  vatRate       Decimal @db.Decimal(5, 2) // aliquota %
+  taxAmount     Decimal @db.Decimal(14, 2)
+  naturaCode    String? // codice natura N1..N9 per fatture non imponibili/esenti/reverse charge
+
+  notes String?
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  fiscalYear   FiscalYear    @relation(fields: [fiscalYearId], references: [id])
+  ivaRegister  IvaRegister   @relation(fields: [ivaRegisterId], references: [id])
+  journalEntry JournalEntry? @relation(fields: [journalEntryId], references: [id])
+  partner      Partner?      @relation(fields: [partnerId], references: [id])
+
+  @@unique([ivaRegisterId, fiscalYearId, protocolNumber])
+  @@map("iva_movements")
+}
+
+enum IvaLiquidazioneStatus {
+  DRAFT
+  FINAL
+}
+
+model IvaLiquidazione {
+  id           String              @id @default(cuid())
+  companyId    String
+  fiscalYearId String
+  period       Int // 1-12 per mensili, 1-4 per trimestrali
+  periodType   IvaSettlementPeriod
+
+  ivaDebito         Decimal               @db.Decimal(14, 2)
+  ivaCredito        Decimal               @db.Decimal(14, 2)
+  creditoPrecedente Decimal               @default(0) @db.Decimal(14, 2)
+  proRataPercent    Decimal?              @db.Decimal(5, 2)
+  acconto           Decimal               @default(0) @db.Decimal(14, 2)
+  maggiorazione     Decimal               @default(0) @db.Decimal(14, 2) // 1% trimestrali per opzione
+  importoDovuto     Decimal               @db.Decimal(14, 2) // positivo = a debito, negativo = a credito riportato
+  status            IvaLiquidazioneStatus @default(DRAFT)
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  fiscalYear FiscalYear @relation(fields: [fiscalYearId], references: [id])
+
+  @@unique([companyId, fiscalYearId, periodType, period])
+  @@map("iva_liquidazioni")
+}
+
+// ---------------------------------------------------------------------------
+// Cespiti
+// ---------------------------------------------------------------------------
+
+model CespiteCategoria {
+  id                   String  @id @default(cuid())
+  companyId            String
+  name                 String
+  coefficientOrdinario Decimal @db.Decimal(5, 2) // % ammortamento fiscale da DM 31/12/1988
+
+  company Company   @relation(fields: [companyId], references: [id], onDelete: Cascade)
+  cespiti Cespite[]
+
+  @@map("cespite_categorie")
+}
+
+enum CespiteStatus {
+  ACTIVE
+  DISMESSO
+  CEDUTO
+}
+
+model Cespite {
+  id                       String        @id @default(cuid())
+  companyId                String
+  categoriaId              String
+  description              String
+  purchaseDate             DateTime
+  activationDate           DateTime
+  historicalCost           Decimal       @db.Decimal(14, 2)
+  accessoryCharges         Decimal       @default(0) @db.Decimal(14, 2)
+  civilCoefficientPercent  Decimal       @db.Decimal(5, 2)
+  fiscalCoefficientPercent Decimal       @db.Decimal(5, 2)
+  firstYearReduced         Boolean       @default(true) // riduzione al 50% nel primo anno
+  isMinorGood              Boolean       @default(false) // costo unitario <= 516,46 €, deducibile integralmente
+  status                   CespiteStatus @default(ACTIVE)
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  company   Company            @relation(fields: [companyId], references: [id], onDelete: Cascade)
+  categoria CespiteCategoria   @relation(fields: [categoriaId], references: [id])
+  movimenti CespiteMovimento[]
+
+  @@map("cespiti")
+}
+
+enum CespiteMovimentoType {
+  AMMORTAMENTO_CIVILE
+  AMMORTAMENTO_FISCALE
+  DISMISSIONE
+  CESSIONE
+  RIVALUTAZIONE
+}
+
+model CespiteMovimento {
+  id             String               @id @default(cuid())
+  cespiteId      String
+  fiscalYearId   String
+  type           CespiteMovimentoType
+  amount         Decimal              @db.Decimal(14, 2)
+  // per cessioni: plusvalenza (positiva) o minusvalenza (negativa)
+  gainLoss       Decimal?             @db.Decimal(14, 2)
+  journalEntryId String?
+  notes          String?
+
+  createdAt DateTime @default(now())
+
+  cespite      Cespite       @relation(fields: [cespiteId], references: [id], onDelete: Cascade)
+  fiscalYear   FiscalYear    @relation(fields: [fiscalYearId], references: [id])
+  journalEntry JournalEntry? @relation(fields: [journalEntryId], references: [id])
+
+  @@map("cespite_movimenti")
+}
+
+// ---------------------------------------------------------------------------
+// Riconciliazione bancaria (schema pronto per il modulo di import PDF/CBI/PSD2)
+// ---------------------------------------------------------------------------
+
+model BankAccount {
+  id        String  @id @default(cuid())
+  companyId String
+  accountId String // conto di mastro "Banca c/c ..." collegato
+  iban      String?
+  bankName  String?
+
+  company Company @relation(fields: [companyId], references: [id], onDelete: Cascade)
+  account Account @relation(fields: [accountId], references: [id])
+
+  imports      BankStatementImport[]
+  transactions BankTransaction[]
+
+  @@map("bank_accounts")
+}
+
+enum BankImportStatus {
+  PENDING
+  VALIDATED
+  ERROR
+}
+
+model BankStatementImport {
+  id             String           @id @default(cuid())
+  bankAccountId  String
+  fileName       String
+  sourceFormat   String // PDF_TEMPLATE, PDF_GENERIC, MT940, CBI, PSD2
+  openingBalance Decimal?         @db.Decimal(14, 2)
+  closingBalance Decimal?         @db.Decimal(14, 2)
+  status         BankImportStatus @default(PENDING)
+  importedAt     DateTime         @default(now())
+
+  bankAccount  BankAccount       @relation(fields: [bankAccountId], references: [id], onDelete: Cascade)
+  transactions BankTransaction[]
+
+  @@map("bank_statement_imports")
+}
+
+enum BankMatchStatus {
+  UNMATCHED
+  SUGGESTED
+  MATCHED
+  IGNORED
+}
+
+model BankTransaction {
+  id            String   @id @default(cuid())
+  bankAccountId String
+  importId      String
+  operationDate DateTime
+  valueDate     DateTime
+  amount        Decimal  @db.Decimal(14, 2) // positivo = accredito, negativo = addebito
+  description   String
+  balanceAfter  Decimal? @db.Decimal(14, 2)
+
+  matchStatus           BankMatchStatus @default(UNMATCHED)
+  matchConfidence       Decimal?        @db.Decimal(5, 2)
+  matchedJournalEntryId String?
+
+  bankAccount         BankAccount         @relation(fields: [bankAccountId], references: [id], onDelete: Cascade)
+  import              BankStatementImport @relation(fields: [importId], references: [id], onDelete: Cascade)
+  matchedJournalEntry JournalEntry?       @relation(fields: [matchedJournalEntryId], references: [id])
+
+  @@map("bank_transactions")
+}
+
+// Causali apprese dal sistema per il matching automatico ricorrente
+// (es. "COMMISSIONI SEPA" -> conto spese bancarie)
+model ReconciliationRule {
+  id                 String @id @default(cuid())
+  companyId          String
+  descriptionPattern String
+  accountId          String
+  timesApplied       Int    @default(0)
+
+  company Company @relation(fields: [companyId], references: [id], onDelete: Cascade)
+  account Account @relation(fields: [accountId], references: [id])
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@unique([companyId, descriptionPattern])
+  @@map("reconciliation_rules")
+}
+
+// ---------------------------------------------------------------------------
+// Audit trail
+// ---------------------------------------------------------------------------
+
+model AuditLog {
+  id         String   @id @default(cuid())
+  tenantId   String
+  companyId  String?
+  userId     String?
+  action     String
+  entityType String
+  entityId   String
+  beforeData Json?
+  afterData  Json?
+  createdAt  DateTime @default(now())
+
+  tenant  Tenant   @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  company Company? @relation(fields: [companyId], references: [id])
+  user    User?    @relation(fields: [userId], references: [id])
+
+  @@map("audit_logs")
 }
