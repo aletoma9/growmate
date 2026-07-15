@@ -55,5 +55,8 @@ Next.js (App Router) + TypeScript + PostgreSQL + Prisma.
   prima nota/libro giornale, registri IVA, cespiti, riconciliazione bancaria).
 - `prisma/seed.ts` / `src/lib/provisioning.ts` — dati di base per una nuova azienda.
 - `src/app/t/[tenantId]/c/[companyId]/...` — area applicativa per azienda (dashboard,
-  piano dei conti, prima nota, anagrafiche, registri IVA, bilanci, esercizi).
+  piano dei conti, prima nota, anagrafiche, registri IVA, bilanci, cespiti, banche, esercizi).
 - `src/auth.ts` / `src/auth.config.ts` — autenticazione (NextAuth, credentials + JWT).
+- `src/lib/bank-statement-parser.ts` / `src/lib/bank-matching.ts` — estrazione dei
+  movimenti da estratto conto PDF (via `unpdf`) e motore di matching automatico
+  contro le partite aperte in prima nota.

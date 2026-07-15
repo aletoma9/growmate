@@ -10,6 +10,7 @@ const NAV_ITEMS = [
   { href: "/iva", label: "Registri IVA" },
   { href: "/reports", label: "Bilanci" },
   { href: "/cespiti", label: "Cespiti" },
+  { href: "/banche", label: "Banche" },
   { href: "/fiscal-years", label: "Esercizi" },
 ];
 

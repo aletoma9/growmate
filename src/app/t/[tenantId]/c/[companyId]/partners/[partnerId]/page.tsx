@@ -20,15 +20,16 @@ export default async function PartnerLedgerPage({
   });
 
   const today = new Date();
+  const rows: Array<{ line: (typeof lines)[number]; saldo: number; dueDate: Date | null; overdue: boolean }> = [];
   let running = 0;
-  const rows = lines.map((line) => {
+  for (const line of lines) {
     running += Number(line.debit) - Number(line.credit);
     const dueDate =
       partner.paymentTermsDays != null
         ? new Date((line.journalEntry.documentDate ?? line.journalEntry.date).getTime() + partner.paymentTermsDays * 86400000)
         : null;
-    return { line, saldo: running, dueDate, overdue: dueDate ? dueDate < today : false };
-  });
+    rows.push({ line, saldo: running, dueDate, overdue: dueDate ? dueDate < today : false });
+  }
 
   return (
     <div className="flex max-w-4xl flex-col gap-6">
