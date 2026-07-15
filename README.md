@@ -1,36 +1,59 @@
-This is a [Next.js](https://nextjs.org) project bootstrapped with [`create-next-app`](https://nextjs.org/docs/app/api-reference/cli/create-next-app).
+# ContSocietà
 
-## Getting Started
+SaaS multi-tenant di contabilità ordinaria per società di capitali (S.r.l., S.p.A.).
+Next.js (App Router) + TypeScript + PostgreSQL + Prisma.
 
-First, run the development server:
+## Requisiti
 
-```bash
-npm run dev
-# or
-yarn dev
-# or
-pnpm dev
-# or
-bun dev
-```
+- Node.js 20+
+- PostgreSQL 14+ (locale o Docker)
 
-Open [http://localhost:3000](http://localhost:3000) with your browser to see the result.
+## Setup locale
 
-You can start editing the page by modifying `app/page.tsx`. The page auto-updates as you edit the file.
+1. Installa le dipendenze:
 
-This project uses [`next/font`](https://nextjs.org/docs/app/building-your-application/optimizing/fonts) to automatically optimize and load [Geist](https://vercel.com/font), a new font family for Vercel.
+   ```bash
+   npm install
+   ```
 
-## Learn More
+2. Crea il database e copia il file d'ambiente:
 
-To learn more about Next.js, take a look at the following resources:
+   ```bash
+   createdb contsocieta   # oppure: docker run -e POSTGRES_PASSWORD=postgres -p 5432:5432 -d postgres:16
+   cp .env.example .env
+   ```
 
-- [Next.js Documentation](https://nextjs.org/docs) - learn about Next.js features and API.
-- [Learn Next.js](https://nextjs.org/learn) - an interactive Next.js tutorial.
+   Modifica `.env` se la tua connection string a PostgreSQL è diversa da quella di default
+   (`postgresql://postgres:postgres@localhost:5432/contsocieta`).
 
-You can check out [the Next.js GitHub repository](https://github.com/vercel/next.js) - your feedback and contributions are welcome!
+3. Applica le migrazioni e popola i dati di base (piano dei conti standard, causali
+   contabili, registri IVA, categorie cespiti, un utente/azienda demo):
 
-## Deploy on Vercel
+   ```bash
+   npx prisma migrate dev
+   ```
 
-The easiest way to deploy your Next.js app is to use the [Vercel Platform](https://vercel.com/new?utm_medium=default-template&filter=next.js&utm_source=create-next-app&utm_campaign=create-next-app-readme) from the creators of Next.js.
+   Il seed viene eseguito automaticamente dopo la migrazione (configurato in
+   `prisma.config.ts`). Per rieseguirlo manualmente: `npx tsx prisma/seed.ts`.
 
-Check out our [Next.js deployment documentation](https://nextjs.org/docs/app/building-your-application/deploying) for more details.
+4. Avvia il server di sviluppo:
+
+   ```bash
+   npm run dev
+   ```
+
+5. Apri [http://localhost:3000](http://localhost:3000) e accedi con l'utente demo creato dal seed:
+
+   - Email: `demo@contsocieta.it`
+   - Password: `Demo1234!`
+
+   Oppure registra un nuovo studio da `/register`.
+
+## Struttura
+
+- `prisma/schema.prisma` — modello dati (tenant, aziende, esercizi, piano dei conti,
+  prima nota/libro giornale, registri IVA, cespiti, riconciliazione bancaria).
+- `prisma/seed.ts` / `src/lib/provisioning.ts` — dati di base per una nuova azienda.
+- `src/app/t/[tenantId]/c/[companyId]/...` — area applicativa per azienda (dashboard,
+  piano dei conti, prima nota, anagrafiche, registri IVA, bilanci, esercizi).
+- `src/auth.ts` / `src/auth.config.ts` — autenticazione (NextAuth, credentials + JWT).
