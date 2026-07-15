@@ -408,6 +408,7 @@ const CHART_OF_ACCOUNTS: AccountSeed[] = [
     children: [
       { code: "46.10", name: "Imposte e tasse indeducibili", nature: "COSTO", balanceSheetItem: "CE.B.14", children: [{ code: "46.10.10", name: "Imposta di bollo", nature: "COSTO", balanceSheetItem: "CE.B.14" }] },
       { code: "46.20", name: "Sopravvenienze passive", nature: "COSTO", balanceSheetItem: "CE.B.14", children: [{ code: "46.20.10", name: "Sopravvenienze passive", nature: "COSTO", balanceSheetItem: "CE.B.14" }] },
+      { code: "46.30", name: "Minusvalenze da alienazioni", nature: "COSTO", balanceSheetItem: "CE.B.14", children: [{ code: "46.30.10", name: "Minusvalenze ordinarie", nature: "COSTO", balanceSheetItem: "CE.B.14" }] },
     ],
   },
   {
@@ -463,14 +464,21 @@ const CAUSALI: Array<{
   { code: "CHI", name: "Chiusura conti", type: "CHIUSURA" },
 ];
 
-// Coefficienti di ammortamento ordinario da tabelle ministeriali (DM 31/12/1988)
-const CESPITE_CATEGORIE: Array<{ name: string; coefficientOrdinario: number }> = [
-  { name: "Fabbricati industriali", coefficientOrdinario: 3 },
-  { name: "Impianti e macchinari generici", coefficientOrdinario: 15 },
-  { name: "Attrezzatura varia e minuta", coefficientOrdinario: 15 },
-  { name: "Mobili e macchine ordinarie d'ufficio", coefficientOrdinario: 12 },
-  { name: "Macchine d'ufficio elettromeccaniche ed elettroniche", coefficientOrdinario: 20 },
-  { name: "Autovetture e autoveicoli da trasporto", coefficientOrdinario: 25 },
+// Coefficienti di ammortamento ordinario da tabelle ministeriali (DM 31/12/1988),
+// con i conti di mastro (cespite / fondo ammortamento / ammortamento a CE) collegati.
+const CESPITE_CATEGORIE: Array<{
+  name: string;
+  coefficientOrdinario: number;
+  assetAccountCode: string;
+  fondoAccountCode: string;
+  depreciationExpenseAccountCode: string;
+}> = [
+  { name: "Fabbricati industriali", coefficientOrdinario: 3, assetAccountCode: "11.10.10", fondoAccountCode: "11.10.90", depreciationExpenseAccountCode: "44.20.10" },
+  { name: "Impianti e macchinari generici", coefficientOrdinario: 15, assetAccountCode: "11.20.10", fondoAccountCode: "11.20.90", depreciationExpenseAccountCode: "44.20.10" },
+  { name: "Attrezzatura varia e minuta", coefficientOrdinario: 15, assetAccountCode: "11.30.10", fondoAccountCode: "11.30.90", depreciationExpenseAccountCode: "44.20.10" },
+  { name: "Mobili e macchine ordinarie d'ufficio", coefficientOrdinario: 12, assetAccountCode: "11.40.10", fondoAccountCode: "11.40.90", depreciationExpenseAccountCode: "44.20.10" },
+  { name: "Macchine d'ufficio elettromeccaniche ed elettroniche", coefficientOrdinario: 20, assetAccountCode: "11.40.20", fondoAccountCode: "11.40.90", depreciationExpenseAccountCode: "44.20.10" },
+  { name: "Autovetture e autoveicoli da trasporto", coefficientOrdinario: 25, assetAccountCode: "11.40.30", fondoAccountCode: "11.40.90", depreciationExpenseAccountCode: "44.20.10" },
 ];
 
 async function createAccountTree(companyId: string, nodes: AccountSeed[], parentId: string | null, level: AccountLevel) {
@@ -530,6 +538,9 @@ export async function provisionCompanyDefaults(companyId: string) {
       companyId,
       name: c.name,
       coefficientOrdinario: c.coefficientOrdinario,
+      assetAccountCode: c.assetAccountCode,
+      fondoAccountCode: c.fondoAccountCode,
+      depreciationExpenseAccountCode: c.depreciationExpenseAccountCode,
     })),
   });
 }

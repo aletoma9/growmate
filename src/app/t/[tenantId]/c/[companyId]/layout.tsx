@@ -9,6 +9,7 @@ const NAV_ITEMS = [
   { href: "/partners", label: "Anagrafiche" },
   { href: "/iva", label: "Registri IVA" },
   { href: "/reports", label: "Bilanci" },
+  { href: "/cespiti", label: "Cespiti" },
   { href: "/fiscal-years", label: "Esercizi" },
 ];
 

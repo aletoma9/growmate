@@ -447,6 +447,11 @@ model CespiteCategoria {
   name                 String
   coefficientOrdinario Decimal @db.Decimal(5, 2) // % ammortamento fiscale da DM 31/12/1988
 
+  // Codici conto (piano dei conti azienda) per la generazione automatica delle scritture
+  assetAccountCode               String?
+  fondoAccountCode               String?
+  depreciationExpenseAccountCode String?
+
   company Company   @relation(fields: [companyId], references: [id], onDelete: Cascade)
   cespiti Cespite[]
 
