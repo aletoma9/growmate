@@ -42,12 +42,12 @@ Next.js (App Router) + TypeScript + PostgreSQL + Prisma.
    npm run dev
    ```
 
-5. Apri [http://localhost:3000](http://localhost:3000) e accedi con l'utente demo creato dal seed:
+5. Apri [http://localhost:3000](http://localhost:3000): si atterra direttamente sulla dashboard
+   dell'azienda demo, senza login. Non è richiesto alcun accesso: l'app usa in modo
+   trasparente il primo utente presente nel database (quello creato dal seed).
 
-   - Email: `demo@contsocieta.it`
-   - Password: `Demo1234!`
-
-   Oppure registra un nuovo studio da `/register`.
+   Il login con email/password resta disponibile su `/login` solo per chi vuole
+   accedere esplicitamente con un utente specifico (utile con più utenti/studi).
 
 ## Struttura
 

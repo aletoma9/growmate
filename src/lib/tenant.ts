@@ -1,13 +1,24 @@
-import { notFound } from "next/navigation";
+import { notFound, redirect } from "next/navigation";
 import { auth } from "@/auth";
 import { prisma } from "@/lib/prisma";
 
+/**
+ * Nessun login richiesto per l'uso normale dell'app: se non c'è una sessione
+ * attiva (nessuno ha fatto login esplicitamente da /login), si usa in modo
+ * trasparente il primo utente esistente. Se il database è del tutto vuoto,
+ * serve prima registrare uno studio da /register.
+ */
 export async function requireUser() {
   const session = await auth();
-  if (!session?.user?.id) {
-    notFound();
+  if (session?.user?.id) {
+    return session.user;
   }
-  return session.user;
+
+  const defaultUser = await prisma.user.findFirst({ orderBy: { createdAt: "asc" } });
+  if (!defaultUser) {
+    redirect("/register");
+  }
+  return defaultUser;
 }
 
 export async function getUserMemberships(userId: string) {

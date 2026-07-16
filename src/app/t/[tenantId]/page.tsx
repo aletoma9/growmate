@@ -1,4 +1,5 @@
 import Link from "next/link";
+import { redirect } from "next/navigation";
 import { requireTenantAccess } from "@/lib/tenant";
 import { prisma } from "@/lib/prisma";
 import { CreateCompanyForm } from "./create-company-form";
@@ -15,6 +16,10 @@ export default async function TenantPage({
     where: { tenantId },
     orderBy: { name: "asc" },
   });
+
+  if (companies.length === 1) {
+    redirect(`/t/${tenantId}/c/${companies[0].id}`);
+  }
 
   return (
     <div className="mx-auto flex min-h-screen max-w-2xl flex-col gap-8 px-4 py-16">
