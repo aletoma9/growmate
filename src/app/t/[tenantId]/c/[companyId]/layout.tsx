@@ -6,6 +6,7 @@ const NAV_ITEMS = [
   { href: "", label: "Dashboard" },
   { href: "/accounts", label: "Piano dei conti" },
   { href: "/journal", label: "Prima nota" },
+  { href: "/import-fatture", label: "Import fatture" },
   { href: "/partners", label: "Anagrafiche" },
   { href: "/iva", label: "Registri IVA" },
   { href: "/reports", label: "Bilanci" },

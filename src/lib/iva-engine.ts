@@ -60,9 +60,18 @@ export function computeIvaEffects(input: IvaComputationInput): {
   const taxAmount = round2(taxableAmount * (vatRate / 100));
   const isReverseCharge = regimeType === "REVERSE_CHARGE_INTERNO" || regimeType === "REVERSE_CHARGE_ESTERO";
 
+  if (isReverseCharge && isVenditeSide) {
+    // Il cedente emette la fattura senza addebitare IVA ("inversione contabile"):
+    // è il cessionario ad autofatturare e a fare la doppia registrazione.
+    return {
+      lines: [],
+      movements: [{ registerType, sectionalCode: "1", taxableAmount, vatRate: 0, taxAmount: 0, regimeType, naturaCode }],
+    };
+  }
+
   if (isReverseCharge) {
-    // Autofattura: doppia registrazione (acquisti + vendite sezionale RC),
-    // effetto neutro in prima nota (IVA a credito = IVA a debito).
+    // Lato acquisti, autofattura: doppia registrazione (acquisti + vendite
+    // sezionale RC), effetto neutro in prima nota (IVA a credito = IVA a debito).
     return {
       lines: [
         { accountCode: IVA_CREDITO_ACCOUNT_CODE, debit: taxAmount, credit: 0, description: "IVA reverse charge - detrazione" },

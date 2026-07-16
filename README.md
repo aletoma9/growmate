@@ -60,3 +60,6 @@ Next.js (App Router) + TypeScript + PostgreSQL + Prisma.
 - `src/lib/bank-statement-parser.ts` / `src/lib/bank-matching.ts` — estrazione dei
   movimenti da estratto conto PDF (via `unpdf`) e motore di matching automatico
   contro le partite aperte in prima nota.
+- `src/lib/fatturapa-parser.ts` — import fatture elettroniche SdI (XML FatturaPA):
+  riconoscimento automatico di direzione, anagrafica e regime IVA per la
+  registrazione in prima nota (`/import-fatture`).
